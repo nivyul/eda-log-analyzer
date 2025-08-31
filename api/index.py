@@ -1,38 +1,28 @@
 # api/index.py
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# Import your graph runner from the adjusted module
-from eda_log_analyzer_tool_agents import run_graph
+# adjust import to match your repo structure
+from app.eda_log_analyzer_tool_agents import run_graph
 
 app = FastAPI(title="EDA Log Analyzer API")
 
-# (Optional) loosen CORS for local testing; tighten for production
+# (optional) CORS if you’ll call from another domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # replace with your domain(s)
+    allow_origins=["*"],  # tighten in prod
     allow_credentials=True,
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
 )
 
-@app.get("/api/health")
+@app.get("/health")
 async def health():
     return PlainTextResponse("ok", status_code=200)
 
-@app.post("/api/run")
+@app.post("/run")
 async def run(request: Request):
-    """
-    Body (example):
-    {
-      "messages": [
-        {"role": "user", "content": "analyze"},
-        {"role": "assistant", "content": "…"}
-      ],
-      "thread_id": "optional-stable-id"
-    }
-    """
     try:
         body = await request.json()
     except Exception:
@@ -40,13 +30,11 @@ async def run(request: Request):
 
     messages = body.get("messages", [])
     thread_id = body.get("thread_id")
-
     if not isinstance(messages, list):
-        raise HTTPException(400, "'messages' must be a list of {role, content} items")
+        raise HTTPException(400, "'messages' must be a list")
 
     try:
         reply = run_graph(messages, thread_id=thread_id)
         return JSONResponse({"reply": reply})
     except Exception as e:
-        # Surface error text for debugging; consider logging instead in prod
         raise HTTPException(500, f"Graph error: {e}")
