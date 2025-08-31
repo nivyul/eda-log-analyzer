@@ -3,15 +3,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import PlainTextResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# adjust import to match your repo structure
 from app.eda_log_analyzer_tool_agents import run_graph
 
 app = FastAPI(title="EDA Log Analyzer API")
 
-# (optional) CORS if you’ll call from another domain
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in prod
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
