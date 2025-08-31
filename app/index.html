@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EDA Log Analyst — Chat</title>
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <style>
+    :root{
+      --bg:#0b1020; --panel:#121a33; --ink:#e6ecff; --muted:#a9b4d0; --accent:#2641ff; --danger:#ff5666;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,Segoe UI,Roboto}
+    .wrap{display:flex;flex-direction:column;height:100%;max-width:1000px;margin:0 auto}
+    header{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #1d274d}
+    .logo{font-weight:700}
+    .settings{display:flex;gap:8px;align-items:center}
+    .settings input[type="text"]{width:460px;max-width:60vw}
+    .btn{appearance:none;border:1px solid #1d274d;background:#0f1733;color:var(--ink);border-radius:12px;padding:10px 12px;cursor:pointer}
+    .btn:disabled{opacity:.6;cursor:wait}
+    input[type="text"], textarea{background:#0f1733;border:1px solid #1d274d;color:var(--ink);border-radius:12px;padding:10px 12px}
+    main{flex:1;display:flex;flex-direction:column}
+    .feed{flex:1;overflow:auto;padding:16px;scroll-behavior:smooth}
+    .row{display:flex;gap:10px;margin:10px 0}
+    .bubble{padding:10px 12px;border-radius:12px;max-width:75%;white-space:pre-wrap}
+    .me{justify-content:flex-end}
+    .me .bubble{background:var(--accent);color:#fff}
+    .bot .bubble{background:#0f1733}
+    .meta{font-size:12px;color:var(--muted);margin-top:4px}
+    .composer{display:flex;gap:10px;padding:12px;border-top:1px solid #1d274d}
+    .composer textarea{flex:1;min-height:48px;max-height:40vh;resize:vertical}
+    .hint{color:var(--muted);font-size:12px;padding:0 16px 12px}
+    .err{color:var(--danger)}
+    .copy{font-size:12px;border:none;background:transparent;color:var(--muted);margin-left:8px;cursor:pointer}
+    .cf-wrap{display:none}
+    .cf-wrap.active{display:block}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="logo">🔎 EDA Log Analyst — Chat</div>
+      <div class="settings">
+        <input id="apiUrl" type="text" placeholder="https://your-api-url/api/run" />
+        <button id="save" class="btn">Save</button>
+        <button id="clear" class="btn" title="Clear conversation">Clear</button>
+      </div>
+    </header>
+
+    <main>
+      <div id="feed" class="feed" aria-live="polite"></div>
+      <div class="hint">
+        Enter sends • Shift+Enter = new line.<br>
+        API: <code>/api/run</code> must accept POST { messages:[...] } and return { reply: "..." }.
+        <span id="status" class="meta"></span>
+      </div>
+      <div id="cf" class="cf-wrap">
+        <div class="cf-turnstile" data-sitekey="" data-theme="dark"></div>
+      </div>
+      <form id="composer" class="composer">
+        <textarea id="msg" placeholder="Ask: analyze, WNS, congestion, errors…"></textarea>
+        <button id="send" class="btn" type="submit">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <script type="module">
+    // Default API URL: your Vercel serverless endpoint
+    const DEFAULT_API_URL = localStorage.getItem('EDA_API_URL') || '/api/run';
+    const TURNSTILE_SITE_KEY = localStorage.getItem('EDA_TS_SITEKEY') || '';
+
+    const feed = document.getElementById('feed');
+    const composer = document.getElementById('composer');
+    const textarea = document.getElementById('msg');
+    const sendBtn = document.getElementById('send');
+    const apiUrlInput = document.getElementById('apiUrl');
+    const saveBtn = document.getElementById('save');
+    const clearBtn = document.getElementById('clear');
+    const statusEl = document.getElementById('status');
+    const cfWrap = document.getElementById('cf');
+
+    apiUrlInput.value = DEFAULT_API_URL;
+
+    if (TURNSTILE_SITE_KEY) {
+      const el = cfWrap.querySelector('.cf-turnstile');
+      el.setAttribute('data-sitekey', TURNSTILE_SITE_KEY);
+      cfWrap.classList.add('active');
+    }
+
+    const saved = sessionStorage.getItem('EDA_CHAT_HISTORY');
+    const history = saved ? JSON.parse(saved) : [];
+
+    function persist(){ sessionStorage.setItem('EDA_CHAT_HISTORY', JSON.stringify(history)); }
+    function scrollToBottom(){ feed.scrollTop = feed.scrollHeight; }
+    function el(tag, cls, text){ const n=document.createElement(tag); if(cls) n.className=cls; if(text!==undefined) n.textContent=text; return n; }
+
+    function appendMessage(role, text){
+      const row = el('div', 'row ' + (role==='user'?'me':'bot'));
+      const bubble = el('div', 'bubble');
+      bubble.textContent = text;
+      if (role !== 'user') {
+        const meta = el('div', 'meta');
+        const copy = el('button', 'copy', 'Copy');
+        copy.addEventListener('click', () => navigator.clipboard.writeText(text));
+        meta.append('assistant'); meta.appendChild(copy);
+        row.appendChild(bubble);
+        row.appendChild(meta);
+      } else {
+        row.appendChild(bubble);
+      }
+      feed.appendChild(row);
+      scrollToBottom();
+    }
+
+    function setBusy(b){ sendBtn.disabled = b; textarea.disabled = b; composer.style.opacity = b?0.7:1; }
+
+    clearBtn.addEventListener('click', () => {
+      feed.innerHTML = '';
+      history.length = 0;
+      persist();
+      appendMessage('assistant', 'Chat cleared.');
+    });
+
+    saveBtn.addEventListener('click', () => {
+      const url = apiUrlInput.value.trim();
+      localStorage.setItem('EDA_API_URL', url);
+      appendMessage('assistant', `Saved API URL: ${url || '(empty)'}`);
+    });
+
+    for (const m of history) appendMessage(m.role, m.content);
+
+    textarea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); composer.dispatchEvent(new Event('submit')); }
+    });
+
+    composer.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const API_URL = (apiUrlInput.value || '').trim();
+      if (!API_URL) { appendMessage('assistant', 'Set your API URL first (top right).'); return; }
+
+      const q = textarea.value.trim(); if (!q) return; textarea.value='';
+      appendMessage('user', q);
+      history.push({ role:'user', content:q }); persist();
+
+      setBusy(true); statusEl.textContent = ' contacting API…';
+
+      try {
+        const body = { messages: history };
+        const r = await fetch(API_URL, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+
+        // Accept both backend formats
+        const a =
+          (data && typeof data.reply === 'string') ? data.reply :
+          (data?.choices?.[0]?.message?.content ?? JSON.stringify(data));
+
+        appendMessage('assistant', a);
+        history.push({ role:'assistant', content:a }); persist();
+        statusEl.textContent = '';
+      } catch (err) {
+        console.error(err);
+        appendMessage('assistant', `❌ Error: ${err.message || err}`);
+        statusEl.textContent = '';
+      } finally {
+        setBusy(false);
+      }
+    });
+  </script>
+</body>
+</html>
